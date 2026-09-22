@@ -1,0 +1,4 @@
+__pycache__/
+*.pyc
+.env
+ban_list.txt
