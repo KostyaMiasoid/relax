@@ -45,7 +45,7 @@ class ProfileView(discord.ui.View):
         for child in self.children:
             child.disabled = True
         await interaction.message.edit(view=self)
-        await interaction.response.send_message(f"🚫 Анкету додано в бан-лист! Вона більше не з'явиться.", ephemeral=True)
+        await interaction.response.send_message(f"🚫 Повію додано в бан-лист! Вона більше не з'явиться.", ephemeral=True)
 
 async def scrape_site():
     results = []
@@ -99,7 +99,7 @@ async def auto_parse():
         print("Помилка: Не знайдено канал для авто-парсингу")
         return
 
-    print("Запуск автоматичного парсингу о 12:00...")
+    print("Запуск пошуку повій о 12:00...")
     banned_links = get_banned_links()
     profiles = await scrape_site()
     
@@ -119,7 +119,7 @@ async def auto_parse():
     if sent_count > 0:
         await channel.send(f"Знайдено нових повій (автоматично): {sent_count}")
     else:
-        print("Авто-парсинг завершено, нових анкет немає.")
+        print("Авто-парсинг завершено, нових повій немає.")
 # ======================================
 
 @bot.command(name="parse")
