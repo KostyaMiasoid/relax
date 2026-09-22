@@ -7,6 +7,7 @@ from flask import Flask
 import datetime
 from zoneinfo import ZoneInfo
 import motor.motor_asyncio
+import certifi
 
 BOT_TOKEN = os.environ.get("DISCORD_TOKEN")
 MONGO_URI = os.environ.get("MONGO_URI")
@@ -18,7 +19,7 @@ intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 if MONGO_URI:
-    mongo_client = motor.motor_asyncio.AsyncIOMotorClient(MONGO_URI)
+    mongo_client = motor.motor_asyncio.AsyncIOMotorClient(MONGO_URI, tlsCAFile=certifi.where())
     db = mongo_client.relax_bot
     ban_collection = db.banned_links
 else:
