@@ -5,10 +5,13 @@ from playwright.async_api import async_playwright
 import threading
 from flask import Flask
 
-# Беремо токен зі змінних оточення (безпечний підхід)
+# ... Твої імпорти залишаються зверху ...
+
 BOT_TOKEN = os.environ.get("DISCORD_TOKEN")
 
-# Налаштування бота
+# ДОДАЙ СВІЙ ID КАНАЛУ СЮДИ (без лапок, просто цифри)
+TARGET_CHANNEL_ID = 1552023417539133551 
+
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
@@ -106,7 +109,16 @@ async def scrape_site():
 # Команда в Discord, яка запускає парсер
 @bot.command(name="parse")
 async def start_parsing(ctx):
-    await ctx.send("⏳ Починаю збір анкет...")
+    # Шукаємо канал за заданим ID
+    channel = bot.get_channel(TARGET_CHANNEL_ID)
+    
+    # Якщо бот не бачить каналу (немає доступу або помилка в ID)
+    if channel is None:
+        await ctx.send("❌ Помилка: Не можу знайти канал! Перевір ID та дозволи бота.")
+        return
+
+    # Тепер пишемо не в ctx (звідки викликали), а в channel
+    await channel.send("⏳ Починаю збір анкет...")
     
     banned_links = get_banned_links()
     profiles = await scrape_site()
@@ -122,11 +134,11 @@ async def start_parsing(ctx):
         embed = discord.Embed(title="Нова анкета знайдена!", url=url, color=discord.Color.blue())
         embed.set_image(url=profile["img"])
         
-        # Відправляємо повідомлення з кнопками
-        await ctx.send(embed=embed, view=ProfileView(url))
+        # Відправляємо повідомлення з кнопками в конкретний канал
+        await channel.send(embed=embed, view=ProfileView(url))
         sent_count += 1
         
-    await ctx.send(f"✅ Готово! Знайдено нових анкет: {sent_count}")
+    await channel.send(f"✅ Готово! Знайдено нових анкет: {sent_count}")
 
 @bot.event
 async def on_ready():
