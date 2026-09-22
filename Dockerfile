@@ -1,5 +1,5 @@
-# Використовуємо легкий образ Python
-FROM python:3.10-slim
+# Змінюємо образ на Debian 12 (Bookworm), де немає проблем із шрифтами
+FROM python:3.10-bookworm
 
 # Встановлюємо робочу директорію всередині контейнера
 WORKDIR /app
@@ -16,9 +16,9 @@ RUN playwright install --with-deps chromium
 # Копіюємо весь інший код у контейнер
 COPY . .
 
-# Вказуємо порт для Flask (Render зазвичай використовує 10000)
+# Вказуємо порт для Flask
 ENV PORT=10000
 EXPOSE $PORT
 
-# Команда для запуску вашого бота (замініть main.py на назву вашого файлу)
-CMD ["python", "main.py"]
+# Команда для запуску вашого бота (увага: -u потрібен для логів на Render)
+CMD ["python", "-u", "scraper_bot.py"]
