@@ -1,15 +1,14 @@
 import os
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 from playwright.async_api import async_playwright
 import threading
 from flask import Flask
-
-# ... Твої імпорти залишаються зверху ...
+import datetime
+from zoneinfo import ZoneInfo
 
 BOT_TOKEN = os.environ.get("DISCORD_TOKEN")
 
-# ДОДАЙ СВІЙ ID КАНАЛУ СЮДИ (без лапок, просто цифри)
 TARGET_CHANNEL_ID = 1552023417539133551 
 
 intents = discord.Intents.default()
@@ -18,45 +17,36 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 BAN_FILE = "ban_list.txt"
 
-# Функція для завантаження бан-листа з файлу
 def get_banned_links():
     if not os.path.exists(BAN_FILE):
         return set()
     with open(BAN_FILE, "r", encoding="utf-8") as f:
         return set(line.strip() for line in f if line.strip())
 
-# Функція для додавання в бан-лист
 def ban_link(url):
     with open(BAN_FILE, "a", encoding="utf-8") as f:
         f.write(url + "\n")
 
-# Клас, який створює кнопки під повідомленням
 class ProfileView(discord.ui.View):
     def __init__(self, profile_url):
         super().__init__(timeout=None)
         self.profile_url = profile_url
 
-    # Кнопка "Галочка" (Бездіяльність/Залишити)
     @discord.ui.button(label="Залишити", style=discord.ButtonStyle.green, emoji="✅")
     async def approve_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Відключаємо кнопки після натискання
         for child in self.children:
             child.disabled = True
         await interaction.message.edit(view=self)
         await interaction.response.send_message("Анкету залишено.", ephemeral=True)
 
-    # Кнопка "Хрестик" (Додати в бан-лист)
     @discord.ui.button(label="В бан", style=discord.ButtonStyle.red, emoji="❌")
     async def ban_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         ban_link(self.profile_url)
-        # Відключаємо кнопки
         for child in self.children:
             child.disabled = True
         await interaction.message.edit(view=self)
         await interaction.response.send_message(f"🚫 Анкету додано в бан-лист! Вона більше не з'явиться.", ephemeral=True)
 
-
-# Основна функція парсингу (тепер асинхронна)
 async def scrape_site():
     results = []
     async with async_playwright() as p:
@@ -66,19 +56,15 @@ async def scrape_site():
         await page.goto("https://relaxdnepr.com")
         await page.wait_for_load_state("networkidle")
         
-        # 1. Фільтр "Проверенные"
         await page.locator("a:has-text('Проверенные')").first.click()
         await page.wait_for_load_state("networkidle")
         
-        # 2. Відкриваємо "Услуги"
         await page.locator("button[data-target='#services-filter']").click()
         await page.wait_for_timeout(1500)
         
-        # 3. Фільтр "Работаю с девственниками"
         await page.locator("a:has-text('Работаю с девственниками')").first.click()
         await page.wait_for_load_state("networkidle")
 
-        # 4. Натискаємо кнопку пошуку (якщо є)
         try:
             search_button = page.locator("form.form-search button[type='submit']")
             if await search_button.is_visible(timeout=2000):
@@ -87,7 +73,6 @@ async def scrape_site():
         except:
             pass
         
-        # Збираємо всі анкети
         profiles = await page.locator(".item").all()
         for profile in profiles:
             try:
@@ -105,20 +90,47 @@ async def scrape_site():
         await browser.close()
     return results
 
+target_time = datetime.time(hour=12, minute=0, tzinfo=ZoneInfo("Europe/Kyiv"))
 
-# Команда в Discord, яка запускає парсер
+@tasks.loop(time=target_time)
+async def auto_parse():
+    channel = bot.get_channel(TARGET_CHANNEL_ID)
+    if channel is None:
+        print("Помилка: Не знайдено канал для авто-парсингу")
+        return
+
+    print("Запуск автоматичного парсингу о 12:00...")
+    banned_links = get_banned_links()
+    profiles = await scrape_site()
+    
+    sent_count = 0
+    for profile in profiles:
+        url = profile["url"]
+        
+        if url in banned_links:
+            continue
+            
+        embed = discord.Embed(title="Нова повія! (Авто-пошук)", url=url, color=discord.Color.green())
+        embed.set_image(url=profile["img"])
+        
+        await channel.send(embed=embed, view=ProfileView(url))
+        sent_count += 1
+        
+    if sent_count > 0:
+        await channel.send(f"Знайдено нових повій (автоматично): {sent_count}")
+    else:
+        print("Авто-парсинг завершено, нових анкет немає.")
+# ======================================
+
 @bot.command(name="parse")
 async def start_parsing(ctx):
-    # Шукаємо канал за заданим ID
     channel = bot.get_channel(TARGET_CHANNEL_ID)
     
-    # Якщо бот не бачить каналу (немає доступу або помилка в ID)
     if channel is None:
         await ctx.send("❌ Помилка: Не можу знайти канал! Перевір ID та дозволи бота.")
         return
 
-    # Тепер пишемо не в ctx (звідки викликали), а в channel
-    await channel.send("⏳ Починаю збір анкет...")
+    await channel.send("Починаю збір повій...")
     
     banned_links = get_banned_links()
     profiles = await scrape_site()
@@ -127,23 +139,24 @@ async def start_parsing(ctx):
     for profile in profiles:
         url = profile["url"]
         
-        # Якщо анкета вже є в txt файлі - пропускаємо її
         if url in banned_links:
             continue
             
-        embed = discord.Embed(title="Нова анкета знайдена!", url=url, color=discord.Color.blue())
+        embed = discord.Embed(title="Нова повія!", url=url, color=discord.Color.blue())
         embed.set_image(url=profile["img"])
         
-        # Відправляємо повідомлення з кнопками в конкретний канал
         await channel.send(embed=embed, view=ProfileView(url))
         sent_count += 1
         
-    await channel.send(f"✅ Готово! Знайдено нових анкет: {sent_count}")
+    await channel.send(f"Знайдено нових повій: {sent_count}")
 
 @bot.event
 async def on_ready():
     print(f'Бот {bot.user} успішно запущений!')
     print('Напиши в Discord команду !parse щоб запустити парсер.')
+    
+    if not auto_parse.is_running():
+        auto_parse.start()
 
 app = Flask(__name__)
 
@@ -152,15 +165,12 @@ def home():
     return "Bot is alive!"
 
 def run_web():
-    # Render автоматично видає порт через змінну середовища PORT
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
 
 if __name__ == "__main__":
-    # Запускаємо веб-сервер у фоновому потоці
     threading.Thread(target=run_web, daemon=True).start()
     
-    # Запускаємо самого бота
     if BOT_TOKEN:
         bot.run(BOT_TOKEN)
     else:
