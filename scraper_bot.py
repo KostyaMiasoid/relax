@@ -6,8 +6,10 @@ import threading
 from flask import Flask
 import datetime
 from zoneinfo import ZoneInfo
+import motor.motor_asyncio
 
 BOT_TOKEN = os.environ.get("DISCORD_TOKEN")
+MONGO_URI = os.environ.get("MONGO_URI")
 
 TARGET_CHANNEL_ID = 1552023417539133551 
 
@@ -15,17 +17,25 @@ intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-BAN_FILE = "ban_list.txt"
+if MONGO_URI:
+    mongo_client = motor.motor_asyncio.AsyncIOMotorClient(MONGO_URI)
+    db = mongo_client.relax_bot
+    ban_collection = db.banned_links
+else:
+    print("Помилка: Не знайдено MONGO_URI!")
+    ban_collection = None
 
-def get_banned_links():
-    if not os.path.exists(BAN_FILE):
+async def get_banned_links():
+    if ban_collection is None:
         return set()
-    with open(BAN_FILE, "r", encoding="utf-8") as f:
-        return set(line.strip() for line in f if line.strip())
+    docs = await ban_collection.find({}).to_list(length=None)
+    return set(doc["url"] for doc in docs)
 
-def ban_link(url):
-    with open(BAN_FILE, "a", encoding="utf-8") as f:
-        f.write(url + "\n")
+async def ban_link(url):
+    if ban_collection is not None:
+        exists = await ban_collection.find_one({"url": url})
+        if not exists:
+            await ban_collection.insert_one({"url": url})
 
 class ProfileView(discord.ui.View):
     def __init__(self, profile_url):
@@ -41,7 +51,7 @@ class ProfileView(discord.ui.View):
 
     @discord.ui.button(label="В бан", style=discord.ButtonStyle.red, emoji="❌")
     async def ban_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        ban_link(self.profile_url)
+        await ban_link(self.profile_url)
         for child in self.children:
             child.disabled = True
         await interaction.message.edit(view=self)
@@ -100,7 +110,7 @@ async def auto_parse():
         return
 
     print("Запуск пошуку повій о 12:00...")
-    banned_links = get_banned_links()
+    banned_links = await get_banned_links()
     profiles = await scrape_site()
     
     sent_count = 0
@@ -120,7 +130,6 @@ async def auto_parse():
         await channel.send(f"Знайдено нових повій (автоматично): {sent_count}")
     else:
         print("Авто-парсинг завершено, нових повій немає.")
-# ======================================
 
 @bot.command(name="parse")
 async def start_parsing(ctx):
@@ -132,7 +141,7 @@ async def start_parsing(ctx):
 
     await channel.send("Починаю збір повій...")
     
-    banned_links = get_banned_links()
+    banned_links = await get_banned_links()
     profiles = await scrape_site()
     
     sent_count = 0
